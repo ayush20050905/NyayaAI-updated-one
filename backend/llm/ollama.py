@@ -46,7 +46,33 @@ LEGAL TEXT:
 
     return "\n".join(blocks)
 
-def generate_answer(question, retrieved_docs):
+def localize_answer(answer, language):
+
+    if language == "English":
+        return answer
+
+    response = ollama.chat(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"Translate the supplied answer into {language}. "
+                    "Preserve its meaning, legal citations, section numbers, "
+                    "names, and quoted legal text verbatim. Do not add or omit facts. "
+                    "Return only the translation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": answer,
+            },
+        ],
+    )
+    return response["message"]["content"].strip()
+
+
+def generate_answer(question, retrieved_docs, language="English"):
 
     if not retrieved_docs:
 
@@ -99,6 +125,11 @@ RETRIEVED LEGAL DOCUMENTS
 QUESTION
 
 {question}
+
+====================================================
+
+Respond in {language}. Use clear, accessible language while preserving
+legal names, section numbers, citations, and quoted text verbatim.
 
 ====================================================
 

@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import math
+from pathlib import Path
 
 # ==========================================================
 # SESSION STATE INITIALIZATION
@@ -17,6 +18,18 @@ if "search_mode" not in st.session_state:
     st.session_state.search_mode = "Indian Laws"
 if "language" not in st.session_state:
     st.session_state.language = "English"
+ANSWER_LANGUAGES = [
+    "English",
+    "Hindi",
+    "Tamil",
+    "Telugu",
+    "Bengali",
+    "Marathi",
+    "Kannada",
+    "Malayalam",
+    "Gujarati",
+    "Punjabi",
+]
 if "triggered_prompt" not in st.session_state:
     st.session_state.triggered_prompt = None
 
@@ -168,6 +181,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
+    st.session_state.language = st.selectbox(
+        "Answer language",
+        options=ANSWER_LANGUAGES,
+        index=ANSWER_LANGUAGES.index(st.session_state.language),
+        key="answer_language",
+    )
+
     st.divider()
     st.subheader("Upload PDF")
     
@@ -252,6 +272,49 @@ else:
     # Active Workspace Header
     st.header("⚖️ NyayaAI")
     st.markdown("##### AI-Powered Indian Legal Research & Document Analysis Platform")
+
+with st.expander("Find a Lawyer — Demo Directory", expanded=False):
+    st.warning(
+        "Fictional demo profiles and illustrative photos only. Contact details "
+        "are placeholders; replace them with verified information before publishing."
+    )
+    demo_lawyers = [
+        {
+            "name": "Advocate Demo One",
+            "practice": "Civil Law",
+            "phone": "+91 94542 32111",
+            "photo": "advocate_civil.svg",
+        },
+        {
+            "name": "Advocate Demo Two",
+            "practice": "Criminal Law",
+            "phone": "+91 98765 43210",
+            "photo": "advocate_criminal.svg",
+        },
+        {
+            "name": "Advocate Demo Three",
+            "practice": "Family Law",
+            "phone": "+91 99922 91231",
+            "photo": "advocate_family.svg",
+        },
+        {
+            "name": "Advocate Demo Four",
+            "practice": "Property Law",
+            "phone": "+91 88888 12345",
+            "photo": "advocate_property.svg",
+        },
+    ]
+    for lawyer in demo_lawyers:
+        photo_column, details_column = st.columns([1, 4])
+        with photo_column:
+            photo_path = Path(__file__).parent / "assets" / lawyer["photo"]
+            st.markdown(
+                photo_path.read_text(encoding="utf-8"),
+                unsafe_allow_html=True,
+            )
+        with details_column:
+            st.markdown(f"### {lawyer['practice']} Advocate")
+            st.write(f"**{lawyer['name']}** — {lawyer['phone']} (placeholder)")
 
 # Active Workspace Metrics
 if st.session_state.messages or st.session_state.document_profile:
@@ -397,7 +460,11 @@ if prompt:
             with st.status("Generating answer...", expanded=True) as chat_status:
                 try:
                     mode = "permanent" if st.session_state.search_mode == "Indian Laws" else "dynamic"
-                    payload = {"question": prompt, "mode": mode}
+                    payload = {
+                        "question": prompt,
+                        "mode": mode,
+                        "language": st.session_state.language,
+                    }
                     
                     response = requests.post(ASK_URL, json=payload)
 

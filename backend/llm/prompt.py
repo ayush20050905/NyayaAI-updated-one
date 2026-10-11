@@ -16,13 +16,11 @@ STRICT RULES
 4. Copy the metadata exactly as provided.
 5. Never change "Section" into "Article" or vice versa.
 6. Never expand abbreviations unless the retrieved context explicitly contains the expansion.
-7. If the answer is not present, reply exactly:
-
-I could not find sufficient information in the provided legal documents.
+7. If the answer is not present, clearly state that in the requested language.
 
 8. Keep answers professional and easy to understand.
 
-9. Explain the legal provision in plain English without changing its meaning.
+9. Explain the legal provision in the requested language without changing its meaning.
 
 10. If multiple retrieved documents are relevant, explain each separately.
 

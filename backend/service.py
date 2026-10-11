@@ -1,13 +1,14 @@
 from pathlib import Path
 import shutil
 import tempfile
+from typing import Literal
 
 from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 
 from backend.pipeline.upload_pipeline import process_uploaded_pdf
 from backend.retrieval.hybrid import hybrid_search
-from backend.llm.ollama import generate_answer
+from backend.llm.ollama import generate_answer, localize_answer
 
 from backend.routing.query_classifier import classify_query
 from backend.routing.profile_router import answer_from_profile
@@ -27,6 +28,18 @@ app = FastAPI(
 class QueryRequest(BaseModel):
     question: str
     mode: str = "dynamic"
+    language: Literal[
+        "English",
+        "Hindi",
+        "Tamil",
+        "Telugu",
+        "Bengali",
+        "Marathi",
+        "Kannada",
+        "Malayalam",
+        "Gujarati",
+        "Punjabi",
+    ] = "English"
 
 
 # ==========================================================
@@ -76,6 +89,7 @@ def ask(request: QueryRequest):
 
     print("\n" + "=" * 80)
     print("MODE     :", request.mode)
+    print("LANGUAGE :", request.language)
     print("QUESTION :", request.question)
     print("=" * 80)
 
@@ -91,7 +105,7 @@ def ask(request: QueryRequest):
 
         return {
             "question": request.question,
-            "answer": general_answer,
+            "answer": localize_answer(general_answer, request.language),
             "sources": []
         }
 
@@ -117,7 +131,7 @@ def ask(request: QueryRequest):
 
             return {
                 "question": request.question,
-                "answer": profile_answer,
+                "answer": localize_answer(profile_answer, request.language),
                 "sources": []
             }
 
@@ -148,9 +162,12 @@ def ask(request: QueryRequest):
 
         return {
             "question": request.question,
-            "answer": (
+            "answer": localize_answer(
+                (
                 "I could not find sufficient information in the available "
                 "legal documents to answer your question."
+                ),
+                request.language,
             ),
             "sources": []
         }
@@ -163,7 +180,8 @@ def ask(request: QueryRequest):
 
         answer = generate_answer(
             request.question,
-            retrieved_docs
+            retrieved_docs,
+            request.language,
         )
 
     except Exception as e:
