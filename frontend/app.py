@@ -1,9 +1,57 @@
 import streamlit as st
+import json
 import requests
 import math
 from pathlib import Path
+import streamlit.components.v1 as components
+try:
+    from streamlit_mic_recorder import speech_to_text
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
 
 # ==========================================================
+
+
+def render_speech_controls(text, key="nyaya-speech"):
+    """Play an assistant response using the browser's speech engine."""
+    spoken_text = json.dumps(str(text)).replace("<", "\\u003c")
+    components.html(
+        f"""
+        <div style="display:flex;gap:8px;font-family:Arial,sans-serif">
+          <button onclick="speakAnswer()"
+            style="padding:8px 14px;border:0;border-radius:9px;
+            background:#273449;color:white;cursor:pointer">
+            🔊 Listen
+          </button>
+          <button onclick="stopAnswer()"
+            style="padding:8px 14px;border:1px solid #64748b;
+            border-radius:9px;background:transparent;
+            color:inherit;cursor:pointer">
+            ⏹ Stop
+          </button>
+        </div>
+        <script>
+          const answerText = {spoken_text};
+          function speakAnswer() {{
+            if (!('speechSynthesis' in window)) {{
+              alert('Speech playback is not supported in this browser.');
+              return;
+            }}
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(answerText);
+            utterance.lang = 'en-IN';
+            window.speechSynthesis.speak(utterance);
+          }}
+          function stopAnswer() {{
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          }}
+        </script>
+        """,
+        height=52,
+    )
+
+
 # SESSION STATE INITIALIZATION
 # ==========================================================
 if "messages" not in st.session_state:
@@ -59,15 +107,55 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-    div[data-testid="stMetric"] {
-        background-color: #f8fafc;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-    }
+:root { color-scheme: dark; }
+.stApp {
+  background: radial-gradient(ellipse at top left, #14283a 0%, #0b1220 45%, #080d17 100%);
+  color: #e5edf7;
+}
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg,#101d2d,#0a111d);
+  border-right: 1px solid #25364b;
+}
+.block-container { max-width: 1180px; padding-top: 2rem; padding-bottom: 4rem; }
+h1,h2,h3 { letter-spacing: -0.035em; }
+h1 { color:#f3f7fc; }
+h2,h3 { color:#dbeafe; }
+p, label, .stMarkdown { color:#d3deec; }
+div[data-testid="stMetric"] {
+  background:#111e2e; border:1px solid #2a3b51;
+  padding:16px; border-radius:14px;
+}
+div[data-testid="stChatMessage"] {
+  border:1px solid #26384e; border-radius:16px;
+  padding:14px; margin-bottom:12px;
+  background:rgba(16,29,45,.82);
+}
+.stButton button, .stDownloadButton button {
+  border-radius:10px; border:1px solid #38536e;
+  transition:all .15s ease;
+}
+.stButton button[kind="primary"] {
+  background:linear-gradient(135deg,#0f766e,#0e7490);
+  border:0; color:white;
+}
+.stButton button:hover { border-color:#5eead4; color:white; }
+div[data-testid="stExpander"] {
+  border:1px solid #2a3b51; border-radius:12px;
+}
+div[data-testid="stFileUploader"] {
+  background:#111e2e; border:1px dashed #3b526d;
+  border-radius:12px; padding:8px;
+}
+.nyaya-hero {
+  padding:30px; border-radius:22px; margin-bottom:20px;
+  background:linear-gradient(120deg,rgba(15,118,110,.25),rgba(30,64,110,.25));
+  border:1px solid #2b5260;
+}
+.nyaya-kicker {
+  color:#5eead4; font-size:.8rem; font-weight:700;
+  letter-spacing:.16em; text-transform:uppercase;
+}
+.nyaya-muted { color:#9fb2c8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -148,7 +236,12 @@ def generate_case_brief_pdf(doc_name, summary, profile):
         ("DECISION", profile.get("decision", "N/A")),
         ("ENTITIES", profile.get("people", "N/A")),
         ("DATES", profile.get("dates", "N/A")),
-        ("LEGAL REFERENCES", profile.get("important_sections", profile.get("citations", "N/A")))
+        ("LEGAL REFERENCES", profile.get("important_sections", profile.get("citations", "N/A"))),
+        ("IMPORTANT DATES", profile.get("important_dates", profile.get("dates", []))),
+        ("OBLIGATIONS", profile.get("obligations", profile.get("demands_or_actions", []))),
+        ("RESPONSE DEADLINE", profile.get("response_deadline", "Not specified")),
+        ("POTENTIAL CONCERNS", profile.get("potential_concerns", [])),
+        ("LAWYER REVIEW POINTS", profile.get("review_points", []))
     ]
     
     for title, content in sections:
@@ -241,8 +334,14 @@ with st.sidebar:
 
 # Home Page (Empty State)
 if not st.session_state.messages and not st.session_state.document_profile:
-    st.title("⚖️ Welcome to NyayaAI")
-    st.markdown("##### AI-powered legal research and document analysis")
+    st.markdown("""
+    <div class="nyaya-hero">
+      <div class="nyaya-kicker">Legal intelligence workspace</div>
+      <h1>NyayaAI</h1>
+      <p>Research Indian law. Understand legal documents. Explore answers with sources.</p>
+      <div class="nyaya-muted">BNS · BNSS · BSA · Constitution of India</div>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
     
     col1, col2, col3 = st.columns([1, 0.2, 1])
@@ -380,6 +479,58 @@ if st.session_state.document_profile:
     with brief_tabs[6]:
         st.write(profile.get("important_sections", profile.get("citations", profile.get("articles", "No explicit reference extracted."))))
         
+    # Enhanced legal document findings
+    st.divider()
+    st.subheader("Additional Legal Findings")
+
+    finding_tabs = st.tabs([
+        "Important Dates",
+        "Obligations / Demands",
+        "Potential Concerns",
+        "Lawyer Review Points",
+    ])
+
+    with finding_tabs[0]:
+        dates = profile.get("important_dates", [])
+        if profile.get("response_deadline"):
+            dates = list(dates) if isinstance(dates, list) else [dates]
+            dates.append({"date": profile["response_deadline"], "context": "Response deadline"})
+        if dates:
+            for item in dates if isinstance(dates, list) else [dates]:
+                st.write(item)
+        else:
+            st.info("No important dates were extracted from this document.")
+
+    with finding_tabs[1]:
+        items = profile.get("obligations", profile.get("demands_or_actions", []))
+        if items:
+            for item in items if isinstance(items, list) else [items]:
+                st.write(item)
+        else:
+            st.info("No obligations or demands were extracted.")
+
+    with finding_tabs[2]:
+        concerns = profile.get("potential_concerns", [])
+        if concerns:
+            for item in concerns if isinstance(concerns, list) else [concerns]:
+                st.warning(str(item))
+        else:
+            st.info("No potential concerns were identified by the analyzer.")
+
+    with finding_tabs[3]:
+        points = profile.get("review_points", [])
+        if points:
+            for item in points if isinstance(points, list) else [points]:
+                st.write(item)
+        else:
+            st.info("No additional review points were extracted.")
+
+    st.caption(
+        "AI-generated findings are preliminary and may omit context. "
+        "Verify important dates and obligations against the original document "
+        "and consult a qualified lawyer for legal advice."
+    )
+
     doc_name_clean = doc_data.get('document', 'Document').replace('.pdf', '')
     pdf_bytes = generate_case_brief_pdf(doc_name_clean, doc_data.get('summary', ''), profile)
     
@@ -435,14 +586,30 @@ if st.session_state.messages or st.session_state.document_profile:
         else:
             with st.chat_message("assistant"):
                 st.markdown(msg["content"])
+                render_speech_controls(msg["content"], key="history-" + str(len(st.session_state.messages)))
                 if "sources" in msg and msg["sources"]:
                     render_sources(msg["sources"])
 
 # ==========================================
 # CHAT INPUT & EXECUTION
 # ==========================================
+voice_text = None
+if VOICE_AVAILABLE:
+    with st.expander("🎙️ Ask by voice", expanded=False):
+        st.caption("Allow microphone access when your browser asks.")
+        try:
+            voice_text = speech_to_text(
+                language="en",
+                start_prompt="Start recording",
+                stop_prompt="Stop recording",
+                just_once=True,
+                key="nyaya_voice_input",
+            )
+        except Exception as exc:
+            st.warning(f"Voice input is unavailable in this browser: {exc}")
+
 user_input = st.chat_input("Ask a legal question...")
-prompt = st.session_state.triggered_prompt or user_input
+prompt = st.session_state.triggered_prompt or user_input or voice_text
 
 if prompt:
     if st.session_state.triggered_prompt:
@@ -493,6 +660,7 @@ if prompt:
             # 3. Print the answer OUTSIDE the status block so it stays visible
             if answer:
                 st.markdown(answer)
+                render_speech_controls(answer, key="latest-answer")
                 render_sources(sources)
 
                 st.session_state.messages.append({
