@@ -33,3 +33,6 @@ __pycache__/
 *.bin
 *.sqlite3
 *.pickle
+
+# Local downloaded model weights
+models/

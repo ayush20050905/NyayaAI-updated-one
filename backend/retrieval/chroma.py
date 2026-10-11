@@ -21,7 +21,7 @@ print("✓ Embedding model loaded")
 # ==========================================================
 
 permanent_client = chromadb.PersistentClient(path=str(PERMANENT_DB))
-permanent_collection = permanent_client.get_collection(PERMANENT_COLLECTION)
+permanent_collection = permanent_client.get_or_create_collection(PERMANENT_COLLECTION)
 
 print("✓ Connected to Permanent ChromaDB")
 
@@ -36,7 +36,7 @@ def get_dynamic_collection():
 
         client = chromadb.PersistentClient(path=str(DYNAMIC_DB))
 
-        return client.get_collection(DYNAMIC_COLLECTION)
+        return client.get_or_create_collection(DYNAMIC_COLLECTION)
 
     except Exception:
 

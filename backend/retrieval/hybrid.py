@@ -2,7 +2,6 @@ from typing import List, Dict, Any
 
 from backend.retrieval.chroma import retrieve
 from backend.retrieval.bm25 import keyword_search
-from backend.retrieval.reranker import rerank
 from backend.utils.config import TOP_K
 
 # Load permanent BM25 once
@@ -81,4 +80,4 @@ def hybrid_search(
     if not merged:
         return []
 
-    return rerank(query, merged)
+    return merged[:3]
