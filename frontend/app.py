@@ -4,11 +4,18 @@ import requests
 import math
 from pathlib import Path
 import streamlit.components.v1 as components
+import os
+import io
+import hashlib
+import subprocess
+import tempfile
+import speech_recognition as sr
 try:
-    from streamlit_mic_recorder import speech_to_text
+    from streamlit_mic_recorder import mic_recorder
     VOICE_AVAILABLE = True
 except ImportError:
     VOICE_AVAILABLE = False
+
 
 # ==========================================================
 
@@ -593,71 +600,147 @@ if st.session_state.messages or st.session_state.document_profile:
 # ==========================================
 # CHAT INPUT & EXECUTION
 # ==========================================
+
 voice_text = None
+
 if VOICE_AVAILABLE:
     with st.expander("🎙️ Ask by voice", expanded=False):
-        st.caption("Allow microphone access when your browser asks.")
-        try:
-            voice_text = speech_to_text(
-                language="en",
-                start_prompt="Start recording",
-                stop_prompt="Stop recording",
-                just_once=True,
-                key="nyaya_voice_input",
-            )
-        except Exception as exc:
-            st.warning(f"Voice input is unavailable in this browser: {exc}")
+        st.caption("Click Start recording, speak, then stop recording.")
+
+        audio = mic_recorder(
+            start_prompt="Start recording",
+            stop_prompt="Stop recording",
+            key="nyaya_voice_input",
+        )
+
+        if audio and audio.get("bytes"):
+            audio_bytes = audio["bytes"]
+            audio_hash = hashlib.sha256(audio_bytes).hexdigest()
+
+            if audio_hash != st.session_state.get("last_voice_audio_hash"):
+                st.session_state["last_voice_audio_hash"] = audio_hash
+
+                try:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        webm_path = os.path.join(temp_dir, "recording.webm")
+                        wav_path = os.path.join(temp_dir, "recording.wav")
+
+                        with open(webm_path, "wb") as f:
+                            f.write(audio_bytes)
+
+                        subprocess.run(
+                            [
+                                "/opt/homebrew/bin/ffmpeg",
+                                "-y", "-i", webm_path,
+                                "-ac", "1", "-ar", "16000",
+                                wav_path,
+                            ],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+
+                        recognizer = sr.Recognizer()
+                        with sr.AudioFile(wav_path) as source:
+                            recording = recognizer.record(source)
+
+                        voice_text = recognizer.recognize_google(
+                            recording, language="en-IN"
+                        )
+
+                    if voice_text:
+                        st.success(f"Recognized: {voice_text}")
+                        st.session_state["voice_prompt"] = voice_text
+
+                except sr.UnknownValueError:
+                    st.warning("Speech wasn't clear. Please try again.")
+                except sr.RequestError as exc:
+                    st.error(f"Speech recognition service error: {exc}")
+                except subprocess.CalledProcessError:
+                    st.error("Audio conversion failed.")
+                except Exception as exc:
+                    st.error(f"Voice input error: {exc}")
+
 
 user_input = st.chat_input("Ask a legal question...")
-prompt = st.session_state.triggered_prompt or user_input or voice_text
+
+voice_prompt = st.session_state.pop("voice_prompt", None)
+
+if voice_prompt:
+    st.session_state.triggered_prompt = voice_prompt
+    st.rerun()
+
+prompt = st.session_state.triggered_prompt or user_input
 
 if prompt:
     if st.session_state.triggered_prompt:
         st.session_state.triggered_prompt = None
-        
+
     if st.session_state.search_mode == "Uploaded Document" and not st.session_state.document_profile:
         st.warning("⚠️ Please upload a PDF first to search within a document.")
     else:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.messages.append({
+            "role": "user",
+            "content": prompt,
+        })
+
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            # 1. Start the status block
+            answer = None
+            sources = []
+
             with st.status("Generating answer...", expanded=True) as chat_status:
                 try:
-                    mode = "permanent" if st.session_state.search_mode == "Indian Laws" else "dynamic"
+                    mode = (
+                        "permanent"
+                        if st.session_state.search_mode == "Indian Laws"
+                        else "dynamic"
+                    )
+
                     payload = {
                         "question": prompt,
                         "mode": mode,
                         "language": st.session_state.language,
                     }
-                    
-                    response = requests.post(ASK_URL, json=payload)
+
+                    response = requests.post(
+                        ASK_URL,
+                        json=payload,
+                        timeout=180,
+                    )
 
                     if response.status_code == 200:
                         data = response.json()
                         answer = data.get("answer", "No response generated.")
                         sources = data.get("sources", [])
-
-                        # 2. Close the status block
-                        chat_status.update(label="Analysis Complete", state="complete", expanded=False)
-                        
+                        chat_status.update(
+                            label="Analysis Complete",
+                            state="complete",
+                            expanded=False,
+                        )
                     else:
                         chat_status.update(label="API Error", state="error")
-                        st.error(f"Error {response.status_code}: {response.text}")
-                        answer = None # Prevent rendering if error
-                
+                        st.error(
+                            f"Error {response.status_code}: {response.text}"
+                        )
+
                 except requests.exceptions.ConnectionError:
                     chat_status.update(label="Backend Offline", state="error")
-                    st.error("Cannot connect to the NyayaAI backend. Make sure FastAPI is running on localhost:8000.")
-                    answer = None
-                except Exception as e:
-                    chat_status.update(label="Error", state="error")
-                    st.error(f"An error occurred: {e}")
-                    answer = None
+                    st.error(
+                        "Cannot connect to NyayaAI. Ensure FastAPI is running "
+                        "on localhost:8000."
+                    )
 
-            # 3. Print the answer OUTSIDE the status block so it stays visible
+                except requests.exceptions.Timeout:
+                    chat_status.update(label="Request timed out", state="error")
+                    st.error("The request took too long. Please try again.")
+
+                except Exception as exc:
+                    chat_status.update(label="Error", state="error")
+                    st.error(f"An error occurred: {exc}")
+
             if answer:
                 st.markdown(answer)
                 render_speech_controls(answer, key="latest-answer")
@@ -666,8 +749,10 @@ if prompt:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
-                    "sources": sources
+                    "sources": sources,
                 })
+
+
 
 # ==========================================
 # FOOTER
