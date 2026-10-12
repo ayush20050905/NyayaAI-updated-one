@@ -36,3 +36,9 @@ __pycache__/
 
 # Local downloaded model weights
 models/
+
+# Local backups and development tests
+*.backup
+frontend/*.py.before-*.py
+frontend/*.py.*-backup.py
+voice_test.py
